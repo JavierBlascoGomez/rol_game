@@ -75,7 +75,9 @@ namespace DungeonMasterAI
 
         private void OnPartial(string partial)
         {
-            streamBuffer += partial;
+            // LLM for Unity devuelve el texto ACUMULADO en cada llamada,
+            // no solo el fragmento nuevo. Reemplazamos el buffer completo.
+            streamBuffer = partial;
             narrativeUI.UpdateStreaming(StripJson(streamBuffer));
         }
 
