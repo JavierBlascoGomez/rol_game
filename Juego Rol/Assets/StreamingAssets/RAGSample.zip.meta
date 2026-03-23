@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<< HEAD
 guid: ce7dea5f691f4c347ad5a3c46f4f0da3
+=======
+guid: 388bb6589bf035646befb72c475c7d79
+>>>>>>> feat/character-creation
 DefaultImporter:
   externalObjects: {}
   userData: 
