@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
-using System.IO; // ¡IMPORTANTE! Necesario para manejar archivos en el disco
+using System.IO;
+using UnityEngine.SceneManagement; // ¡IMPORTANTE! Necesario para manejar archivos en el disco
 
 // 1. Creamos una clase "contenedor" solo para los datos que queremos guardar.
 // [System.Serializable] es obligatorio para que Unity pueda convertirlo a JSON.
@@ -75,7 +76,7 @@ public class StatsSetUp : MonoBehaviour
 
             SaveCharacterToJSON();
 
-            // sceneManager.NextStep(); 
+            SceneManager.LoadScene("GameScene"); 
         }
         else
         {

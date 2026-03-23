@@ -5,7 +5,7 @@ public class MainMenu : MonoBehaviour
 {
     public void OnNewGameButton()
     {
-        SceneManager.LoadScene("SampleScene");
+        SceneManager.LoadScene("CreateCharacterScene");
     }
 
     public void OnLoadGameButton()
