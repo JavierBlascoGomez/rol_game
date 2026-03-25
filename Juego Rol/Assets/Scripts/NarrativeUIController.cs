@@ -39,7 +39,7 @@ namespace DungeonMasterAI
             if (!string.IsNullOrEmpty(history)) history += "\n\n";
             history += $"<color={DMColor}>{finalText}</color>";
             narrativeText.text = history;
-            StartCoroutine(ScrollToBottom());
+            //StartCoroutine(ScrollToBottom());
         }
 
         /// <summary>Añade la acción del jugador al historial en color diferente.</summary>
