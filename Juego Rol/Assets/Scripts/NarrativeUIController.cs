@@ -30,7 +30,7 @@ namespace DungeonMasterAI
         public void UpdateStreaming(string partial)
         {
             narrativeText.text = history +
-                $"<color={DMColor}>{partial}</color>▌";
+                $"<color={DMColor}>{partial}</color>|";
         }
 
         /// <summary>Fija el texto final en el historial.</summary>
