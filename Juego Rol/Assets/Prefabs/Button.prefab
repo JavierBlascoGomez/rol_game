@@ -105,7 +105,7 @@ MonoBehaviour:
   m_characterSpacing: 0
   m_characterHorizontalScale: 1
   m_wordSpacing: 0
-  m_lineSpacing: 0
+  m_lineSpacing: 10
   m_lineSpacingMax: 0
   m_paragraphSpacing: 0
   m_charWidthMaxAdj: 0
@@ -174,8 +174,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -15.9219, y: 6.0288}
-  m_SizeDelta: {x: 307.8642, y: 94.2217}
+  m_AnchoredPosition: {x: -8.945091, y: 36.843376}
+  m_SizeDelta: {x: 631.1265, y: 155.8508}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &6377902481354984630
 CanvasRenderer:
