@@ -1,13 +1,10 @@
 using UnityEngine;
 using LLMUnity;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 
 namespace DungeonMasterAI
 {
-    /// <summary>
-    /// Controlador principal del LLM.
-    /// Gestiona el system prompt (con stats del personaje), streaming y parseo de opciones.
-    /// </summary>
     public class DungeonMasterController : MonoBehaviour
     {
         [Header("LLM")]
@@ -18,47 +15,15 @@ namespace DungeonMasterAI
         public ChoiceManager         choiceManager;
 
         [Header("System Prompt")]
-        [TextArea(8, 16)]
-        public string systemPrompt =
-            "You are a Dungeon Master for a dark fantasy RPG.\n\n" +
-
-            "NARRATIVE RULES:\n" +
-            "- Always narrate in second person (\"You see...\", \"Before you...\")\n" +
-            "- Keep responses under 120 words\n" +
-            "- Be atmospheric and evocative\n" +
-            "- React to player choices with real consequences\n\n" +
-
-            "VARIETY RULES:\n" +
-            "- Every new game must feel completely different\n" +
-            "- Randomize: setting, tone, inciting incident and threat\n" +
-            "- Never start two games the same way\n\n" +
-
-            "DIFFICULTY RULES — CRITICAL:\n" +
-            "- Every choice must have a hidden difficulty (DC) and a required stat\n" +
-            "- Stats: STR (strength), DEX (dexterity), CON (constitution),\n" +
-            "  INT (intelligence), WIS (wisdom), CHA (charisma)\n" +
-            "- DC scale: 8=trivial, 12=easy, 15=medium, 18=hard, 22=very hard\n" +
-            "- Scale DC to the narrative danger of each option\n\n" +
-
-            "RESPONSE FORMAT — ALWAYS end with this exact JSON block:\n" +
-            "```json\n" +
-            "{\"choices\":[\n" +
-            "  {\"text\":\"Option A\",\"dc\":12,\"stat\":\"STR\"},\n" +
-            "  {\"text\":\"Option B\",\"dc\":15,\"stat\":\"DEX\"},\n" +
-            "  {\"text\":\"Option C\",\"dc\":8,\"stat\":\"CHA\"}\n" +
-            "]}\n" +
-            "```\n" +
-            "Keep each choice text under 8 words. Always exactly 3 choices. Valid JSON only.";
+        [TextArea(8, 20)]
+        public string systemPrompt = "You are a Dungeon Master for a dark fantasy RPG.";
 
         [Header("Opening Prompt")]
         [TextArea(4, 8)]
-        public string openingPrompt =
-            "Start a brand new adventure. " +
-            "Randomly pick a unique combination of a setting, a tone, and an inciting incident. " +
-            "Do NOT start at a dungeon entrance. Begin in medias res. " +
-            "80 words max, then 3 choices with their DC and stat.";
+        public string openingPrompt = "Start a new adventure. 60 words max. Then the JSON choices block.";
 
-        // ── Estado interno ────────────────────────────────────────────────
+        [Header("Debug — ver respuesta completa en consola")]
+        public bool debugLog = true;
 
         private string streamBuffer     = "";
         private bool   isWaiting        = false;
@@ -69,9 +34,7 @@ namespace DungeonMasterAI
         async void Start()
         {
             if (llmCharacter == null) { Debug.LogError("[DM] LLMCharacter no asignado."); return; }
-
             llmCharacter.prompt = BuildSystemPrompt();
-
             await SendToDMAsync(BuildOpeningPrompt());
         }
 
@@ -82,13 +45,10 @@ namespace DungeonMasterAI
         public async Task SendToDMAsync(string message)
         {
             if (isWaiting) return;
-
             isWaiting    = true;
             streamBuffer = "";
-
             narrativeUI.SetLoading(true);
             choiceManager.HideChoices();
-
             await llmCharacter.Chat(message, OnPartial, OnComplete);
         }
 
@@ -97,141 +57,194 @@ namespace DungeonMasterAI
         void OnPartial(string partial)
         {
             streamBuffer = partial;
-            narrativeUI.UpdateStreaming(StripJsonBlock(streamBuffer));
+            // Durante el streaming solo mostramos la parte narrativa,
+            // pero NO cortamos en {"choices" porque el JSON puede estar incompleto
+            narrativeUI.UpdateStreaming(ExtractNarrative(streamBuffer));
         }
 
         void OnComplete()
         {
             lastFullResponse = streamBuffer;
-            narrativeUI.Finalize(StripJsonBlock(lastFullResponse));
+
+            if (debugLog)
+                Debug.Log($"[DM] === RESPUESTA COMPLETA ===\n{lastFullResponse}\n=== FIN ===");
+
+            // Ahora sí tenemos la respuesta entera: mostramos narrativa limpia
+            narrativeUI.Finalize(ExtractNarrative(lastFullResponse));
             narrativeUI.SetLoading(false);
             isWaiting = false;
+
+            // Y parseamos el JSON completo
             ParseAndShowChoices(lastFullResponse);
         }
 
-        // ── Parseo JSON ───────────────────────────────────────────────────
-        // CORRECCIÓN: el parseo ahora busca el JSON tanto dentro de bloques
-        // ```json ... ``` como suelto en el texto, y usa un cierre robusto.
+        // ── Extrae solo el texto narrativo (sin JSON) ─────────────────────
+        // Busca el primer { que forme parte del JSON de choices.
+        // Durante el streaming puede que aún no haya llegado, y eso está bien.
+
+        string ExtractNarrative(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+
+            // Busca el inicio del JSON de choices
+            int jsonIdx = FindJsonStart(text);
+            if (jsonIdx > 0)
+                return text.Substring(0, jsonIdx).TrimEnd();
+
+            // Si no hay JSON todavía, devuelve todo el texto
+            return text.TrimEnd();
+        }
+
+        // ── Busca el inicio del JSON de choices ───────────────────────────
+
+        int FindJsonStart(string text)
+        {
+            // Busca {"choices" con posibles espacios
+            var m = Regex.Match(text, @"\{""choices""");
+            if (m.Success) return m.Index;
+
+            // También busca el bloque ```json por si el modelo lo genera igual
+            int fence = text.IndexOf("```json");
+            if (fence >= 0) return fence;
+
+            return -1;
+        }
+
+        // ── Parseo JSON — 2 intentos en cascada ───────────────────────────
 
         void ParseAndShowChoices(string raw)
         {
-            string json = ExtractJson(raw);
+            if (debugLog)
+                Debug.Log("[DM] Intentando parsear choices...");
 
-            if (string.IsNullOrEmpty(json))
+            // Intento 1: JSON completo con "choices"
+            string json = TryExtractChoicesJson(raw);
+            if (json != null)
             {
-                Debug.LogWarning("[DM] JSON de opciones no encontrado en:\n" + raw);
+                if (TryDeserializeAndShow(json)) return;
+            }
+
+            // Intento 2: regex campo a campo (tolera JSON malformado)
+            ChoiceData[] choices = TryParseWithRegex(raw);
+            if (choices != null && choices.Length >= 3)
+            {
+                Debug.Log("[DM] Choices recuperados por regex.");
+                choiceManager.ShowChoices(choices);
                 return;
             }
 
+            Debug.LogWarning("[DM] No se encontraron choices. Revisa el log de respuesta completa.");
+        }
+
+        string TryExtractChoicesJson(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+
+            // Elimina posibles backticks
+            text = Regex.Replace(text, @"```json\s*", "");
+            text = Regex.Replace(text, @"```\s*",     "");
+
+            // Busca el { más cercano a "choices"
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] != '{') continue;
+
+                // Comprueba que cerca haya "choices"
+                int lookahead = Mathf.Min(i + 50, text.Length);
+                if (!text.Substring(i, lookahead - i).Contains("\"choices\"")) continue;
+
+                // Extrae el objeto completo contando llaves
+                int depth = 0;
+                for (int j = i; j < text.Length; j++)
+                {
+                    if (text[j] == '{') depth++;
+                    else if (text[j] == '}')
+                    {
+                        depth--;
+                        if (depth == 0)
+                        {
+                            string candidate = text.Substring(i, j - i + 1);
+                            if (debugLog) Debug.Log("[DM] JSON candidato:\n" + candidate);
+                            return candidate;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        bool TryDeserializeAndShow(string json)
+        {
             try
             {
                 DMResponseData data = JsonUtility.FromJson<DMResponseData>(json);
                 if (data?.choices != null && data.choices.Length > 0)
                 {
+                    Debug.Log($"[DM] {data.choices.Length} choices parseados OK.");
                     choiceManager.ShowChoices(data.choices);
+                    return true;
                 }
-                else
-                {
-                    Debug.LogWarning("[DM] JSON parseado pero sin choices.");
-                }
+                Debug.LogWarning("[DM] JSON OK pero choices vacío.");
             }
             catch (System.Exception e)
             {
-                Debug.LogWarning($"[DM] Error parseando JSON: {e.Message}\n{json}");
+                Debug.LogWarning($"[DM] Error deserializando: {e.Message}");
             }
+            return false;
         }
 
-        /// <summary>
-        /// Extrae el primer objeto JSON que contenga "choices" del texto del LLM.
-        /// Soporta bloque ```json ... ``` y JSON suelto.
-        /// </summary>
-        string ExtractJson(string text)
+        // ── Regex fallback: extrae choices individuales ───────────────────
+
+        ChoiceData[] TryParseWithRegex(string text)
         {
-            if (string.IsNullOrEmpty(text)) return null;
+            var list = new System.Collections.Generic.List<ChoiceData>();
+            var matches = Regex.Matches(text,
+                @"\{[^{}]*""text""\s*:\s*""([^""]+)""\s*,\s*""dc""\s*:\s*(\d+)\s*,\s*""stat""\s*:\s*""([^""]+)""[^{}]*\}|" +
+                @"\{[^{}]*""stat""\s*:\s*""([^""]+)""\s*,\s*""dc""\s*:\s*(\d+)\s*,\s*""text""\s*:\s*""([^""]+)""[^{}]*\}");
 
-            // Intento 1: bloque ```json ... ```
-            int fenceStart = text.IndexOf("```json");
-            if (fenceStart >= 0)
+            foreach (System.Text.RegularExpressions.Match m in matches)
             {
-                int contentStart = text.IndexOf('\n', fenceStart);
-                if (contentStart >= 0)
+                string txt, stat;
+                int dc;
+
+                if (!string.IsNullOrEmpty(m.Groups[1].Value))
                 {
-                    int fenceEnd = text.IndexOf("```", contentStart);
-                    if (fenceEnd > contentStart)
-                    {
-                        string candidate = text.Substring(contentStart, fenceEnd - contentStart).Trim();
-                        if (candidate.Contains("\"choices\"")) return candidate;
-                    }
+                    txt  = m.Groups[1].Value;
+                    dc   = int.Parse(m.Groups[2].Value);
+                    stat = m.Groups[3].Value.ToUpper();
                 }
+                else
+                {
+                    stat = m.Groups[4].Value.ToUpper();
+                    dc   = int.Parse(m.Groups[5].Value);
+                    txt  = m.Groups[6].Value;
+                }
+
+                string[] valid = {"STR","DEX","CON","INT","WIS","CHA"};
+                if (!System.Array.Exists(valid, s => s == stat)) continue;
+
+                list.Add(new ChoiceData { text = txt, dc = dc, stat = stat });
+                if (list.Count == 3) break;
             }
 
-            // Intento 2: JSON suelto — busca { ... } que contenga "choices"
-            int start = text.IndexOf("{");
-            while (start >= 0)
-            {
-                int depth = 0;
-                int end   = -1;
-                for (int i = start; i < text.Length; i++)
-                {
-                    if (text[i] == '{') depth++;
-                    else if (text[i] == '}') { depth--; if (depth == 0) { end = i; break; } }
-                }
-
-                if (end > start)
-                {
-                    string candidate = text.Substring(start, end - start + 1);
-                    if (candidate.Contains("\"choices\"")) return candidate;
-                }
-
-                start = text.IndexOf("{", start + 1);
-            }
-
-            return null;
+            return list.Count > 0 ? list.ToArray() : null;
         }
 
-        /// <summary>
-        /// Elimina el bloque JSON del texto para mostrarlo limpio en la UI.
-        /// </summary>
-        string StripJsonBlock(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return text;
-
-            // Elimina bloque ```json ... ```
-            int fence = text.IndexOf("```json");
-            if (fence >= 0)
-            {
-                int end = text.IndexOf("```", fence + 3);
-                return (end >= 0 ? text.Substring(0, fence) : text.Substring(0, fence)).TrimEnd();
-            }
-
-            // Elimina JSON suelto desde {"choices"
-            int jsonStart = text.IndexOf("{\"choices\"");
-            if (jsonStart >= 0) return text.Substring(0, jsonStart).TrimEnd();
-
-            return text;
-        }
-
-        // ── System prompt con stats del personaje ─────────────────────────
+        // ── System prompt con stats ───────────────────────────────────────
 
         string BuildSystemPrompt()
         {
             string charBlock = "";
-
             if (PlayerStats.Instance != null)
             {
                 var s = PlayerStats.Instance;
                 charBlock =
                     $"\nPLAYER CHARACTER: {s.CharacterName}\n" +
-                    $"Stats — STR:{s.Strength}({Mod(s.Strength)}) " +
-                    $"DEX:{s.Dexterity}({Mod(s.Dexterity)}) " +
-                    $"CON:{s.Constitution}({Mod(s.Constitution)}) " +
-                    $"INT:{s.Intelligence}({Mod(s.Intelligence)}) " +
-                    $"WIS:{s.Wisdom}({Mod(s.Wisdom)}) " +
-                    $"CHA:{s.Charisma}({Mod(s.Charisma)})\n" +
-                    $"HP: {s.currentHP}/{s.maxHP}\n" +
-                    $"Use these stats to calibrate DCs: high stats should make relevant checks easier.\n";
+                    $"STR:{s.Strength}({Mod(s.Strength)}) DEX:{s.Dexterity}({Mod(s.Dexterity)}) " +
+                    $"CON:{s.Constitution}({Mod(s.Constitution)}) INT:{s.Intelligence}({Mod(s.Intelligence)}) " +
+                    $"WIS:{s.Wisdom}({Mod(s.Wisdom)}) CHA:{s.Charisma}({Mod(s.Charisma)})\n" +
+                    $"HP: {s.currentHP}/{s.maxHP}\n";
             }
-
             return systemPrompt + charBlock;
         }
 
@@ -241,44 +254,28 @@ namespace DungeonMasterAI
             return m >= 0 ? $"+{m}" : $"{m}";
         }
 
-        // ── Opening aleatorio ─────────────────────────────────────────────
-
         string BuildOpeningPrompt()
         {
             string[] settings = {
                 "a sinking merchant ship", "a burning village at dawn",
-                "a collapsing mine", "a royal court mid-assassination",
-                "a cursed forest in a storm", "an underground black market",
-                "a besieged monastery", "a plague-ridden city under quarantine"
+                "a collapsing mine",       "a royal court mid-assassination",
+                "a cursed forest",         "an underground black market",
+                "a besieged monastery",    "a plague-ridden city"
             };
-            string[] tones = {
-                "grim and hopeless", "tense and mysterious", "darkly comedic",
-                "epic and grandiose", "intimate and personal"
-            };
+            string[] tones = { "grim", "mysterious", "darkly comedic", "epic", "intimate" };
 
-            string setting = settings[Random.Range(0, settings.Length)];
-            string tone    = tones[Random.Range(0, tones.Length)];
+            string setting  = settings[Random.Range(0, settings.Length)];
+            string tone     = tones  [Random.Range(0, tones.Length)];
+            string charName = PlayerStats.Instance?.CharacterName ?? "the adventurer";
 
-            string charName = PlayerStats.Instance != null
-                ? PlayerStats.Instance.CharacterName : "the adventurer";
-
-            return $"The player's character is {charName}. " +
-                   $"Start a new adventure set in {setting}. Tone: {tone}. " +
-                   $"Begin in medias res, something is already happening. " +
-                   $"80 words max, then 3 choices with DC and stat.";
+            return $"Character: {charName}. Setting: {setting}. Tone: {tone}. " +
+                   $"60 words narration, then the JSON choices block.";
         }
     }
-
-    // ── Modelos de deserialización ────────────────────────────────────────
 
     [System.Serializable]
     public class DMResponseData { public ChoiceData[] choices; }
 
     [System.Serializable]
-    public class ChoiceData
-    {
-        public string text;
-        public int    dc;
-        public string stat;
-    }
+    public class ChoiceData { public string text; public int dc; public string stat; }
 }

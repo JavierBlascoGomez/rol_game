@@ -4,11 +4,6 @@ using UnityEngine.SceneManagement;
 
 namespace DungeonMasterAI
 {
-    /// <summary>
-    /// Lee SaveData_Character.json (creado en la escena de creación de personaje)
-    /// y expone los modificadores D&D al resto del sistema.
-    /// Se autodestruye si ya existe una instancia (DontDestroyOnLoad).
-    /// </summary>
     public class PlayerStats : MonoBehaviour
     {
         public static PlayerStats Instance { get; private set; }
@@ -20,8 +15,7 @@ namespace DungeonMasterAI
         public int maxHP     = 20;
         public int currentHP = 20;
 
-        // Datos cargados del JSON
-        public string CharacterName   { get; private set; } = "Aventurero";
+        public string CharacterName   { get; private set; } = "Adventurer";
         public int    Strength        { get; private set; } = 10;
         public int    Dexterity       { get; private set; } = 10;
         public int    Constitution    { get; private set; } = 10;
@@ -44,17 +38,14 @@ namespace DungeonMasterAI
         void LoadCharacterData()
         {
             string path = Path.Combine(Application.persistentDataPath, "SaveData_Character.json");
-
             if (!File.Exists(path))
             {
-                Debug.LogWarning("[PlayerStats] SaveData_Character.json no encontrado. Usando valores por defecto.");
+                Debug.LogWarning("[PlayerStats] SaveData_Character.json not found. Using defaults.");
                 return;
             }
-
             string json = File.ReadAllText(path);
             CharacterSaveData data = JsonUtility.FromJson<CharacterSaveData>(json);
-
-            if (data == null) { Debug.LogError("[PlayerStats] Error al parsear el JSON."); return; }
+            if (data == null) { Debug.LogError("[PlayerStats] Failed to parse JSON."); return; }
 
             CharacterName = data.characterName;
             Strength      = data.strength;
@@ -64,7 +55,7 @@ namespace DungeonMasterAI
             Wisdom        = data.wisdom;
             Charisma      = data.charisma;
 
-            Debug.Log($"[PlayerStats] Cargado: {CharacterName} STR{Strength} DEX{Dexterity} CON{Constitution} INT{Intelligence} WIS{Wisdom} CHA{Charisma}");
+            Debug.Log($"[PlayerStats] Loaded: {CharacterName} STR{Strength} DEX{Dexterity} CON{Constitution} INT{Intelligence} WIS{Wisdom} CHA{Charisma}");
         }
 
         public int GetModifier(string statKey)
@@ -82,16 +73,17 @@ namespace DungeonMasterAI
             return ScoreToModifier(score);
         }
 
+        // ── Nombres en inglés ─────────────────────────────────────────────
         public string GetStatName(string statKey)
         {
             return statKey?.ToUpper() switch
             {
-                "STR" => "Fuerza",
-                "DEX" => "Destreza",
-                "CON" => "Constitución",
-                "INT" => "Inteligencia",
-                "WIS" => "Sabiduría",
-                "CHA" => "Carisma",
+                "STR" => "Strength",
+                "DEX" => "Dexterity",
+                "CON" => "Constitution",
+                "INT" => "Intelligence",
+                "WIS" => "Wisdom",
+                "CHA" => "Charisma",
                 _     => statKey ?? "???"
             };
         }
@@ -100,7 +92,6 @@ namespace DungeonMasterAI
         {
             currentHP = Mathf.Max(0, currentHP - amount);
             OnHPChanged?.Invoke(currentHP, maxHP);
-
             if (currentHP <= 0)
             {
                 OnPlayerDeath?.Invoke();
@@ -108,7 +99,6 @@ namespace DungeonMasterAI
             }
         }
 
-        // Fórmula D&D estándar — idéntica a CharacterStatsUI.GetModifier
         public static int ScoreToModifier(int score)
         {
             if (score <= 1)  return -5;

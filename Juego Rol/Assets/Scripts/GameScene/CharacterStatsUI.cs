@@ -8,6 +8,9 @@ namespace DungeonMasterAI
     /// Lee SaveData_Character.json y muestra las estadísticas del personaje
     /// junto a su bonificador calculado.
     ///
+    /// CORRECCIÓN: GetModifier ahora delega en PlayerStats.ScoreToModifier
+    /// para garantizar que ambas clases usen exactamente la misma fórmula D&D.
+    ///
     /// SETUP EN UNITY:
     ///   1. Crea un panel de UI con 7 TextMeshProUGUI:
     ///      uno para el nombre y uno por cada stat.
@@ -33,14 +36,22 @@ namespace DungeonMasterAI
         public string neutralColor  = "#CCCCCC";
         public string negativeColor = "#FF6666";
 
-        // ─── Lifecycle ─────────────────────────────────────────────────────
+        // ── Lifecycle ─────────────────────────────────────────────────────
 
         void Start() => LoadAndDisplay();
 
-        // ─── API pública ───────────────────────────────────────────────────
+        // ── API pública ───────────────────────────────────────────────────
 
         public void LoadAndDisplay()
         {
+            // Prioridad 1: usar PlayerStats si ya está instanciado (evita doble lectura de JSON)
+            if (PlayerStats.Instance != null)
+            {
+                DisplayFromPlayerStats(PlayerStats.Instance);
+                return;
+            }
+
+            // Prioridad 2: leer JSON directamente
             string savePath = Path.Combine(Application.persistentDataPath, "SaveData_Character.json");
 
             if (!File.Exists(savePath))
@@ -52,16 +63,25 @@ namespace DungeonMasterAI
             string json = File.ReadAllText(savePath);
             CharacterSaveData data = JsonUtility.FromJson<CharacterSaveData>(json);
 
-            if (data == null)
-            {
-                Debug.LogError("[CharacterStatsUI] Error al parsear el JSON.");
-                return;
-            }
+            if (data == null) { Debug.LogError("[CharacterStatsUI] Error al parsear el JSON."); return; }
 
             Display(data);
         }
 
-        // ─── Display ───────────────────────────────────────────────────────
+        // ── Display ───────────────────────────────────────────────────────
+
+        private void DisplayFromPlayerStats(PlayerStats s)
+        {
+            if (characterNameText != null)
+                characterNameText.text = s.CharacterName;
+
+            SetStatText(strengthText,     "STR", s.Strength);
+            SetStatText(dexterityText,    "DEX", s.Dexterity);
+            SetStatText(constitutionText, "CON", s.Constitution);
+            SetStatText(intelligenceText, "INT", s.Intelligence);
+            SetStatText(wisdomText,       "WIS", s.Wisdom);
+            SetStatText(charismaText,     "CHA", s.Charisma);
+        }
 
         private void Display(CharacterSaveData data)
         {
@@ -80,31 +100,15 @@ namespace DungeonMasterAI
         {
             if (label == null) return;
 
-            int mod = GetModifier(score);
+            // CORRECCIÓN: usa la misma fórmula que PlayerStats
+            int mod = PlayerStats.ScoreToModifier(score);
             string modStr   = mod >= 0 ? $"+{mod}" : $"{mod}";
             string modColor = mod > 0 ? positiveColor : mod < 0 ? negativeColor : neutralColor;
 
             label.text = $"{statName}   {score}   <color={modColor}>[{modStr}]</color>";
         }
 
-        // ─── Cálculo de bonificador ────────────────────────────────────────
-
-        public static int GetModifier(int score)
-        {
-            if (score == 0)              return -5;
-            if (score <= 2)              return -4;
-            if (score <= 4)              return -3;
-            if (score <= 6)              return -2;
-            if (score <= 8)             return -1;
-            if (score <= 11)             return  0;
-            if (score <= 13)             return  1;
-            if (score <= 15)             return  2;
-            if (score <= 17)             return  3;
-            if (score <= 19)             return  4;
-            return                               5;  // 20
-        }
-
-        // ─── Modelo de datos ───────────────────────────────────────────────
+        // ── Modelo de datos (solo para lectura directa de JSON) ────────────
 
         [System.Serializable]
         private class CharacterSaveData

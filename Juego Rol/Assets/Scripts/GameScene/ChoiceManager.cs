@@ -4,10 +4,6 @@ using TMPro;
 
 namespace DungeonMasterAI
 {
-    /// <summary>
-    /// Genera botones con DC y stat. Al pulsar ejecuta la tirada D20
-    /// usando los stats reales del personaje cargado desde el JSON.
-    /// </summary>
     public class ChoiceManager : MonoBehaviour
     {
         [Header("UI")]
@@ -16,24 +12,19 @@ namespace DungeonMasterAI
         public GameObject      diceResultPanel;
         public TextMeshProUGUI diceResultText;
 
-        [Header("Daño por fallo (dados)")]
+        [Header("Fail damage (dice)")]
         public int minFailDamage = 2;
         public int maxFailDamage = 6;
-
-        // ── Lifecycle ─────────────────────────────────────────────────────
 
         void Start()
         {
             if (diceResultPanel != null) diceResultPanel.SetActive(false);
         }
 
-        // ── API pública ───────────────────────────────────────────────────
-
         public void ShowChoices(ChoiceData[] choices)
         {
             HideChoices();
             choiceContainer.gameObject.SetActive(true);
-
             foreach (ChoiceData choice in choices)
                 CreateButton(choice);
         }
@@ -45,22 +36,13 @@ namespace DungeonMasterAI
             choiceContainer.gameObject.SetActive(false);
         }
 
-        // ── Creación de botón ─────────────────────────────────────────────
-
         void CreateButton(ChoiceData choice)
         {
             GameObject btn = Instantiate(choiceButtonPrefab, choiceContainer);
 
-            // El prefab necesita 2 TextMeshProUGUI:
-            //   [0] → texto de la opción
-            //   [1] → stat | modificador | CD
             TextMeshProUGUI[] texts = btn.GetComponentsInChildren<TextMeshProUGUI>();
-
-            if (texts.Length >= 1)
-                texts[0].text = choice.text;
-
-            if (texts.Length >= 2)
-                texts[1].text = BuildStatLabel(choice);
+            if (texts.Length >= 1) texts[0].text = choice.text;
+            if (texts.Length >= 2) texts[1].text = BuildStatLabel(choice);
 
             ChoiceData captured = choice;
             btn.GetComponent<Button>().onClick.AddListener(() => OnChoiceSelected(captured));
@@ -69,23 +51,21 @@ namespace DungeonMasterAI
         string BuildStatLabel(ChoiceData choice)
         {
             if (PlayerStats.Instance == null)
-                return $"{choice.stat}  |  CD {choice.dc}";
+                return $"{choice.stat}  |  DC {choice.dc}";
 
             string statName = PlayerStats.Instance.GetStatName(choice.stat);
             int    modifier = PlayerStats.Instance.GetModifier(choice.stat);
             string modStr   = modifier >= 0 ? $"+{modifier}" : $"{modifier}";
 
-            return $"{statName} ({modStr})  |  CD {choice.dc}";
+            return $"{statName} ({modStr})  |  DC {choice.dc}";
         }
-
-        // ── Tirada D&D ────────────────────────────────────────────────────
 
         void OnChoiceSelected(ChoiceData choice)
         {
             HideChoices();
 
             int  modifier = PlayerStats.Instance?.GetModifier(choice.stat) ?? 0;
-            int  roll     = Random.Range(1, 21);        // 1d20
+            int  roll     = Random.Range(1, 21);
             int  total    = roll + modifier;
             bool success  = total >= choice.dc;
             int  damage   = 0;
@@ -103,8 +83,6 @@ namespace DungeonMasterAI
                                       roll, modifier, success, damage));
         }
 
-        // ── Panel de resultado ────────────────────────────────────────────
-
         void ShowDiceResult(int roll, int modifier, int total,
                             ChoiceData choice, bool success, int damage)
         {
@@ -113,10 +91,10 @@ namespace DungeonMasterAI
             string statName = PlayerStats.Instance?.GetStatName(choice.stat) ?? choice.stat;
             string modStr   = modifier >= 0 ? $"+{modifier}" : $"{modifier}";
             string color    = success ? "#88FF88" : "#FF6666";
-            string outcome  = success ? "✓ ÉXITO" : "✗ FALLO";
+            string outcome  = success ? "✓ SUCCESS" : "✗ FAILURE";
 
             diceResultText.text =
-                $"<b>{statName}</b>  CD {choice.dc}\n" +
+                $"<b>{statName}</b>  DC {choice.dc}\n" +
                 $"🎲 {roll} {modStr} = <b>{total}</b>\n" +
                 $"<color={color}><b>{outcome}</b></color>" +
                 (success ? "" : $"\n<color=#FF4444>−{damage} HP</color>");
